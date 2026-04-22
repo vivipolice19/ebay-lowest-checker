@@ -1,0 +1,52 @@
+modules = ["python-3.11"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["gcc12", "gitFull", "playwright-driver", "python311Full", "tk", "zip", "glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "libdrm", "gtk3", "pango", "cairo", "alsa-lib", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXrandr", "mesa", "expat", "xorg.libxcb", "xorg.libX11", "dbus", "at-spi2-core"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && LD_LIBRARY_PATH=/nix/store/4wpp8mpgwk12j25w9vsls3scmz9smi1j-gcc-12.3.0-lib/lib:$LD_LIBRARY_PATH PYTHONPATH=/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages /nix/store/pjn7rx1d3jnjsif6wnz5im0fdm8pp7xa-python3-3.11.13/bin/python3.11 wsgi.py"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3001
+
+[[ports]]
+localPort = 5904
+externalPort = 3000
+
+[[ports]]
+localPort = 8099
+externalPort = 8099
+
+[deployment]
+deploymentTarget = "vm"
+publicDir = "dist"
+run = ["bash", "-c", "LD_LIBRARY_PATH=/nix/store/4wpp8mpgwk12j25w9vsls3scmz9smi1j-gcc-12.3.0-lib/lib:$LD_LIBRARY_PATH PYTHONPATH=/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages gunicorn --bind=0.0.0.0:5000 --reuse-port --workers=1 --timeout=120 wsgi:app"]

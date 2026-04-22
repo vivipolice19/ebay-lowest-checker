@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mercari → eBay 在庫同期ツール</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">Mercari → eBay 在庫同期</div>
+        <div class="nav-links">
+            <a href="/" class="active">ダッシュボード</a>
+            <a href="/profit">利益管理</a>
+            <a href="/settings">設定</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% if not sheet_configured %}
+        <div class="card card-alert">
+            <h2 class="card-title">初期設定が必要です</h2>
+            <p>スプレッドシートのURLを設定してください。設定後、スプレッドシートに仕入先URLとeBay URLを貼り付けるだけで自動管理が始まります。</p>
+            <a href="/settings" class="btn btn-primary" style="margin-top:12px;">設定画面へ</a>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h2 class="card-title">スプレッドシート管理</h2>
+            <p class="help-text-lg">商品の追加・管理はすべてスプレッドシート上で行います。A列に仕入先URL（メルカリ・ヤフオク・楽天・Amazon・Yahoo!ショッピング・ラクマ対応）、B列にeBay URLを貼り付けてください。仕入れ値・売値は自動取得、利益率は任意入力です。</p>
+
+            {% if sheet_url %}
+            <div class="sheet-link-box">
+                <a href="{{ sheet_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-lg">スプレッドシートを開く</a>
+                <button class="btn btn-secondary" onclick="triggerSync()">今すぐ同期</button>
+            </div>
+            {% endif %}
+
+            <div class="sync-status-bar">
+                <div class="status-item">
+                    <span class="status-label">自動同期:</span>
+                    <span id="sync-status" class="{{ 'status-active' if sync_running else 'status-inactive' }}">
+                        {{ "実行中" if sync_running else "停止中" }}
+                    </span>
+                    <span id="sync-toggle-btn">
+                    {% if sync_running %}
+                    <button class="btn btn-sm btn-danger" onclick="toggleSync('stop')">停止</button>
+                    {% else %}
+                    <button class="btn btn-sm btn-success" onclick="toggleSync('start')">開始</button>
+                    {% endif %}
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">最終同期:</span>
+                    <span id="last-sync-time">{{ last_sync or "未実行" }}</span>
+                </div>
+                {% if last_sync_error %}
+                <div class="status-item">
+                    <span class="status-label">エラー:</span>
+                    <span class="text-danger">{{ last_sync_error }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">商品数:</span>
+                <span id="product-count">{{ product_count }}/{{ max_products }}</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">為替レート:</span>
+                <span id="exchange-rate">{{ "1 USD = %.2f JPY"|format(exchange_rate) if exchange_rate else "未取得" }}</span>
+                <button class="btn btn-sm" onclick="updateExchangeRate()">更新</button>
+            </div>
+            <div class="status-item">
+                <span class="status-label">売切れ監視:</span>
+                <span class="status-active">同期に統合済み</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">商品一覧</h2>
+                <button class="btn btn-sm" onclick="refreshProducts()">更新</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="products-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>仕入先URL</th>
+                            <th>eBay URL</th>
+                            <th>仕入値(円)</th>
+                            <th>売値($)</th>
+                            <th>状態</th>
+                            <th>最終チェック</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in products %}
+                        <tr class="{{ 'row-sold' if p.status == 'out_of_stock' else '' }}">
+                            <td>{{ p.id }}</td>
+                            <td class="url-cell"><a href="{{ p.mercari_url }}" target="_blank" rel="noopener">{{ p.mercari_url[:35] }}...</a></td>
+                            <td class="url-cell"><a href="{{ p.ebay_url }}" target="_blank" rel="noopener">{{ p.ebay_url[:35] }}...</a></td>
+                            <td>{{ "¥{:,.0f}".format(p.purchase_price) if p.purchase_price else "-" }}</td>
+                            <td>{{ "${:,.2f}".format(p.ebay_price_usd) if p.ebay_price_usd else "-" }}</td>
+                            <td>
+                                {% if p.status == "out_of_stock" %}
+                                <span class="badge badge-sold">売り切れ</span>
+                                {% elif p.status == "trading" %}
+                                <span class="badge badge-sold">取引中</span>
+                                {% else %}
+                                <span class="badge badge-active">監視中</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ p.last_check or "未チェック" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

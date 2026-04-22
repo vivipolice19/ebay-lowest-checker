@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eBay連携 - 在庫同期ツール</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .result-box {
+            max-width: 500px;
+            margin: 80px auto;
+            text-align: center;
+            padding: 40px;
+            background: #1e1e1e;
+            border-radius: 12px;
+            border: 1px solid #333;
+        }
+        .result-icon { font-size: 64px; margin-bottom: 20px; }
+        .result-title { font-size: 22px; font-weight: bold; margin-bottom: 12px; }
+        .result-msg { color: #aaa; margin-bottom: 30px; line-height: 1.6; }
+        .success .result-title { color: #4caf50; }
+        .failure .result-title { color: #f44336; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">Mercari → eBay 在庫同期</div>
+        <div class="nav-links">
+            <a href="/">ダッシュボード</a>
+            <a href="/settings" class="active">設定</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="result-box {{ 'success' if success else 'failure' }}">
+            <div class="result-icon">{{ '✅' if success else '❌' }}</div>
+            <div class="result-title">{{ 'eBay連携成功！' if success else '連携に失敗しました' }}</div>
+            <div class="result-msg">{{ message }}</div>
+            <a href="/settings" class="btn btn-primary">設定ページに戻る</a>
+        </div>
+    </div>
+</body>
+</html>

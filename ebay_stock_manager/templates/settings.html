@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>設定 - 在庫同期ツール</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">Mercari → eBay 在庫同期</div>
+        <div class="nav-links">
+            <a href="/">ダッシュボード</a>
+            <a href="/profit">利益管理</a>
+            <a href="/settings" class="active">設定</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card {{ 'card-alert' if not sheet_id }}">
+            <h2 class="card-title">スプレッドシート設定</h2>
+            <p class="help-text-lg">商品管理はすべてスプレッドシート上で行います。A列にMercari URL、B列にeBay URLを入力。C列(仕入値)・D列(売値)は自動取得。E列(利益率)は任意入力です。</p>
+            <form id="sheets-settings-form" onsubmit="saveSheetsSettings(event)">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>スプレッドシート URL / ID</label>
+                        <input type="text" id="sheet-id" value="{{ sheet_id }}" placeholder="https://docs.google.com/spreadsheets/d/... またはスプレッドシートID">
+                    </div>
+                </div>
+                {% if not is_replit %}
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>認証JSONファイルパス（配布版のみ）</label>
+                        <input type="text" id="creds-path" value="{{ creds_path }}" placeholder="credentials.jsonのパス">
+                        <small>Googleサービスアカウントの認証ファイル</small>
+                    </div>
+                </div>
+                {% else %}
+                <input type="hidden" id="creds-path" value="">
+                {% endif %}
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>自動同期間隔（分）</label>
+                        <input type="number" id="sync-interval" value="{{ sync_interval }}" min="1" max="60">
+                        <small>スプレッドシートとの同期間隔</small>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">設定を保存して同期開始</button>
+            </form>
+
+            <div class="sync-status-bar" style="margin-top:16px;">
+                <div class="status-item">
+                    <span class="status-label">自動同期:</span>
+                    <span class="{{ 'status-active' if sync_running else 'status-inactive' }}">
+                        {{ "実行中" if sync_running else "停止中" }}
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">最終同期:</span>
+                    <span>{{ last_sync or "未実行" }}</span>
+                </div>
+                {% if last_sync_error %}
+                <div class="status-item">
+                    <span class="status-label">エラー:</span>
+                    <span class="text-danger">{{ last_sync_error }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">利益管理設定</h2>
+            <form id="profit-settings-form" onsubmit="saveSettings(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>警告閾値 (%)</label>
+                        <input type="number" id="warning-threshold" value="{{ warning_threshold }}" step="1" min="0">
+                        <small>この利益率以下で黄色警告</small>
+                    </div>
+                    <div class="form-group">
+                        <label>危険閾値 (%)</label>
+                        <input type="number" id="alert-threshold" value="{{ alert_threshold }}" step="1" min="0">
+                        <small>この利益率以下で赤色警告</small>
+                    </div>
+                    <div class="form-group">
+                        <label>自動停止閾値 (%)</label>
+                        <input type="number" id="auto-stop-threshold" value="{{ auto_stop_threshold }}" step="1">
+                        <small>この利益率以下で在庫を0に</small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>eBay手数料 (%)</label>
+                        <input type="number" id="ebay-fee" value="{{ ebay_fee }}" step="0.1" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>送料 (USD)</label>
+                        <input type="number" id="shipping-usd" value="{{ shipping_usd }}" step="0.01" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>その他経費 (円)</label>
+                        <input type="number" id="other-expenses" value="{{ other_expenses }}" step="1" min="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="auto-stop-enabled" {{ "checked" if auto_stop_enabled == "true" else "" }}>
+                            赤字時に自動で在庫を0にする
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">設定を保存</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">eBay API設定</h2>
+            <p class="help-text-lg">eBay Developer Program (<a href="https://developer.ebay.com/" target="_blank" rel="noopener">developer.ebay.com</a>) でアプリを作成し、以下の情報を設定してください。</p>
+            <form id="ebay-browse-form" onsubmit="saveBrowseApiSettings(event)">
+                <h3 style="margin: 16px 0 8px; font-size: 14px; color: #aaa;">売値(USD)自動取得 — Browse API</h3>
+                <p class="help-text-lg" style="margin-bottom:12px;">eBayの出品価格を自動取得します。Client IDとClient Secretを設定すると有効になります。</p>
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>Client ID (App ID)</label>
+                        <input type="text" id="ebay-client-id" value="{{ ebay_client_id }}" placeholder="Production環境のClient ID">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>Client Secret (Cert ID)</label>
+                        <input type="password" id="ebay-client-secret" value="{{ ebay_client_secret }}" placeholder="Production環境のClient Secret">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:8px;">Browse API設定を保存</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">eBay在庫停止の連携</h2>
+            <p class="help-text-lg">メルカリで売り切れを検出した際、eBayの在庫を自動で0にします。下のボタンでeBayアカウントと連携してください。</p>
+
+            {% if ebay_oauth_token and ebay_token_status.token_valid %}
+            <div style="background:#1a2e1a; border:1px solid #4caf50; border-radius:8px; padding:14px 18px; margin-bottom:18px; color:#4caf50;">
+                ✅ eBayアカウント連携済み — 在庫の自動停止が有効です（{{ ebay_token_status.token_status }}）
+            </div>
+            {% elif ebay_oauth_token and ebay_token_status.refresh_available %}
+            <div style="background:#2e2a1a; border:1px solid #ff9800; border-radius:8px; padding:14px 18px; margin-bottom:18px; color:#ffb74d;">
+                ⚠️ eBayトークンが期限切れですが、自動リフレッシュが可能です。次回の同期で自動更新されます。<br>
+                <small style="color:#aaa;">それでも失敗する場合は「eBay連携を更新する」ボタンを押して再連携してください。</small>
+            </div>
+            {% elif ebay_oauth_token %}
+            <div style="background:#2e1a1a; border:1px solid #f44336; border-radius:8px; padding:14px 18px; margin-bottom:18px; color:#f87171;">
+                ❌ eBayトークンが期限切れです — 「eBay連携を更新する」ボタンで再連携してください
+            </div>
+            {% else %}
+            <div style="background:#2e1a1a; border:1px solid #f44336; border-radius:8px; padding:14px 18px; margin-bottom:18px; color:#f87171;">
+                ❌ 未連携 — 連携するとメルカリ売り切れ時にeBay在庫を自動で0にします
+            </div>
+            {% endif %}
+
+            <div style="background:#1a1a2e; border:1px solid #4466aa; border-radius:8px; padding:16px 18px; margin-bottom:20px;">
+                <p style="color:#88aaff; font-weight:bold; margin-bottom:10px;">⚠️ eBayで1回だけ必要な設定（初回のみ）</p>
+                <p style="color:#aaa; margin-bottom:10px; line-height:1.7;">
+                    1. <a href="https://developer.ebay.com/" target="_blank" rel="noopener" style="color:#88aaff;">developer.ebay.com</a> にログイン<br>
+                    2. 「Application Keys」→「S system inventory tool」→「<strong style="color:white;">User Tokens</strong>」をクリック<br>
+                    3. 「Your auth accepted URL」欄に以下のURLを貼り付け：
+                </p>
+                <div style="background:#111; border:1px solid #333; border-radius:6px; padding:10px 14px; font-family:monospace; font-size:13px; color:#fff; word-break:break-all; margin-bottom:10px; cursor:pointer;" onclick="navigator.clipboard.writeText('{{ ebay_callback_url }}').then(function(){alert('コピーしました！')})">
+                    {{ ebay_callback_url }} <span style="color:#888; font-size:11px;">（クリックでコピー）</span>
+                </div>
+                <p style="color:#aaa; line-height:1.7;">
+                    4. 「<strong style="color:white;">Save</strong>」ボタンをクリック（eBayのページで）<br>
+                    5. 上のURL設定が終わったら下の「eBayと連携する」ボタンを押す
+                </p>
+            </div>
+
+            <a href="/ebay/connect" class="btn btn-primary" style="display:inline-block; text-decoration:none; font-size:16px; padding:12px 28px;">
+                {% if ebay_oauth_token %}🔄 eBay連携を更新する{% else %}🔗 eBayと連携する{% endif %}
+            </a>
+
+            <hr style="border-color:#333; margin: 24px 0;">
+            <details>
+                <summary style="cursor:pointer; color:#888; font-size:13px;">手動でトークンを入力する場合（上級者向け）</summary>
+                <form id="ebay-settings-form" onsubmit="saveEbaySettings(event)" style="margin-top:14px;">
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label>User Auth Token（手動入力）</label>
+                            <input type="text" id="ebay-oauth-token" value="{{ ebay_oauth_token }}" placeholder="eBay Trading APIのUser Auth Token">
+                            <small>eBay Developer Programの「User Tokens」から手動で取得したトークン</small>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn">トークンを保存</button>
+                </form>
+            </details>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">LINE通知設定</h2>
+            <form id="line-settings-form" onsubmit="saveLineSettings(event)">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>LINE Notifyトークン</label>
+                        <input type="text" id="line-token" value="{{ line_token }}" placeholder="LINE Notifyのトークンを入力">
+                        <small><a href="https://notify-bot.line.me/ja/" target="_blank" rel="noopener">LINE Notify</a>でトークンを取得</small>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">LINE設定を保存</button>
+                <button type="button" class="btn" onclick="testLineNotify()">テスト送信</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">システム状態</h2>
+            <div class="system-status">
+                <div class="status-row">
+                    <span>スプレッドシート同期:</span>
+                    <span class="{{ 'status-active' if sync_running else 'status-inactive' }}">
+                        {{ "実行中" if sync_running else "停止中" }}
+                    </span>
+                </div>
+                <div class="status-row">
+                    <span>売切れ監視:</span>
+                    <span class="status-active">同期に統合済み（自動同期で毎回チェック）</span>
+                </div>
+                <div class="status-row">
+                    <span>eBay売値取得:</span>
+                    <span class="{{ 'status-active' if ebay_client_id else 'status-inactive' }}">
+                        {{ "有効（Browse API）" if ebay_client_id else "無効（Client ID未設定）" }}
+                    </span>
+                </div>
+                <div class="status-row">
+                    <span>eBay在庫自動更新:</span>
+                    <span class="{{ 'status-active' if ebay_oauth_token else 'status-inactive' }}">
+                        {{ "有効（Trading API）" if ebay_oauth_token else "無効（User Token未設定）" }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

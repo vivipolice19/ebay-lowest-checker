@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>利益管理 - 在庫同期ツール</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">Mercari → eBay 在庫同期</div>
+        <div class="nav-links">
+            <a href="/">商品管理</a>
+            <a href="/profit" class="active">利益管理</a>
+            <a href="/settings">設定</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">為替レート:</span>
+                <span id="exchange-rate">{{ "1 USD = %.2f JPY"|format(exchange_rate) if exchange_rate else "未取得" }}</span>
+                {% if rate_updated %}
+                <span class="text-muted">({{ rate_updated }})</span>
+                {% endif %}
+                <button class="btn btn-sm" onclick="updateExchangeRate()">更新</button>
+            </div>
+            <div class="status-item">
+                <span class="status-label">利益監視:</span>
+                <span id="profit-status" class="{{ 'status-active' if profit_running else 'status-inactive' }}">
+                    {{ "実行中" if profit_running else "停止中" }}
+                </span>
+                {% if profit_running %}
+                <button class="btn btn-sm btn-danger" onclick="toggleProfitMonitor('stop')">停止</button>
+                {% else %}
+                <button class="btn btn-sm btn-success" onclick="toggleProfitMonitor('start')">開始</button>
+                {% endif %}
+                <button class="btn btn-sm" onclick="runProfitCheck()">手動チェック</button>
+            </div>
+        </div>
+
+        {% if alert_products %}
+        <div class="card card-alert">
+            <h2 class="card-title">アラート商品 ({{ alert_products|length }}件)</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Mercari URL</th>
+                            <th>仕入値(円)</th>
+                            <th>eBay価格($)</th>
+                            <th>実際利益率</th>
+                            <th>アラート</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in alert_products %}
+                        <tr class="{{ 'row-danger' if p.alert_status == 'danger' else 'row-warning' }}">
+                            <td>{{ p.id }}</td>
+                            <td class="url-cell"><a href="{{ p.mercari_url }}" target="_blank" rel="noopener">{{ p.mercari_url[:50] }}...</a></td>
+                            <td>{{ "%.0f"|format(p.purchase_price) }}</td>
+                            <td>${{ "%.2f"|format(p.ebay_price_usd or 0) }}</td>
+                            <td class="{{ 'text-danger' if p.profit_rate_actual < 0 else '' }}">{{ "%.1f%%"|format(p.profit_rate_actual) }}</td>
+                            <td>
+                                <span class="badge {{ 'badge-danger' if p.alert_status == 'danger' else 'badge-warning' }}">
+                                    {{ "危険" if p.alert_status == "danger" else "警告" }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h2 class="card-title">全商品利益一覧</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Mercari URL</th>
+                            <th>eBay URL</th>
+                            <th>仕入値(円)</th>
+                            <th>eBay価格($)</th>
+                            <th>実際利益率</th>
+                            <th>状態</th>
+                            <th>アラート</th>
+                            <th>最終利益チェック</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in products %}
+                        <tr class="{% if p.alert_status == 'danger' %}row-danger{% elif p.alert_status == 'warning' %}row-warning{% endif %}">
+                            <td>{{ p.id }}</td>
+                            <td class="url-cell"><a href="{{ p.mercari_url }}" target="_blank" rel="noopener">{{ p.mercari_url[:35] }}...</a></td>
+                            <td class="url-cell"><a href="{{ p.ebay_url }}" target="_blank" rel="noopener">{{ p.ebay_url[:35] }}...</a></td>
+                            <td>{{ "%.0f"|format(p.purchase_price) }}</td>
+                            <td>
+                                <input type="number" class="inline-input" value="{{ p.ebay_price_usd or 0 }}"
+                                       onchange="updateEbayPrice({{ p.id }}, this.value)" step="0.01" min="0">
+                            </td>
+                            <td class="{{ 'text-danger' if (p.profit_rate_actual or 0) < 0 else '' }}">
+                                {{ "%.1f%%"|format(p.profit_rate_actual) if p.profit_rate_actual else "-" }}
+                            </td>
+                            <td>
+                                <span class="badge {{ 'badge-active' if p.status == 'active' else 'badge-sold' }}">
+                                    {{ "監視中" if p.status == "active" else "売り切れ" if p.status == "out_of_stock" else p.status }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge {{ 'badge-danger' if p.alert_status == 'danger' else 'badge-warning' if p.alert_status == 'warning' else 'badge-normal' }}">
+                                    {{ "危険" if p.alert_status == "danger" else "警告" if p.alert_status == "warning" else "正常" }}
+                                </span>
+                            </td>
+                            <td>{{ p.last_profit_check or "-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
