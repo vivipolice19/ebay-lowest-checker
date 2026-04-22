@@ -9,9 +9,9 @@ from config import (
     AUTO_REPRICE_UNDERCUT,
     CHECK_INTERVAL_MINUTES,
 )
-from ebay_client import revise_own_listing_price, search_min_price
+from ebay_client import get_item_price_from_url, revise_own_listing_price, search_min_prices_by_conditions
 from notifier import send_alert
-from sheets_gateway import load_watch_items
+from sheets_gateway import load_watch_items, update_watch_result
 from storage import add_check_log, add_price_action
 
 
@@ -76,16 +76,24 @@ class LowestPriceChecker:
 
     def _check_item(self, item: Dict) -> Dict:
         product_key = item["product_key"]
-        condition_name = item["condition"]
         target_url = item["target_url"]
-        target_price = float(item["target_price"] or 0.0)
+        target_price = float(item["own_price"] or 0.0)
         floor_price = float(item["floor_price"] or 0.0)
-        cheapest = search_min_price(item["search_keyword"], condition_name)
+        if target_price <= 0:
+            fetched_price = get_item_price_from_url(target_url)
+            if fetched_price:
+                target_price = fetched_price
 
-        if not cheapest:
+        condition_prices = search_min_prices_by_conditions(item["search_keyword"])
+        available = [
+            (condition, data)
+            for condition, data in condition_prices.items()
+            if data and data.get("price") is not None
+        ]
+        if not available:
             add_check_log(
                 product_key=product_key,
-                condition_name=condition_name,
+                condition_name="ALL",
                 target_url=target_url,
                 target_price=target_price,
                 min_price=None,
@@ -93,8 +101,11 @@ class LowestPriceChecker:
                 status="no_result",
                 note="No listing found",
             )
+            checked_at = datetime.utcnow().isoformat()
+            update_watch_result(product_key, target_price, "no_result", {}, "", "No listing found", checked_at)
             return {"product_key": product_key, "status": "no_result"}
 
+        best_condition, cheapest = min(available, key=lambda x: float(x[1]["price"]))
         min_price = float(cheapest["price"])
         min_url = cheapest["url"]
         status = "ok"
@@ -105,7 +116,7 @@ class LowestPriceChecker:
             note = f"Competitor {min_price:.2f} < own {target_price:.2f}"
             if item["alert_enabled"]:
                 send_alert(
-                    f"[UNDERCUT] {product_key} ({condition_name})\n"
+                    f"[UNDERCUT] {product_key} ({best_condition})\n"
                     f"own={target_price:.2f} / min={min_price:.2f}\n{min_url}"
                 )
 
@@ -124,7 +135,7 @@ class LowestPriceChecker:
 
         add_check_log(
             product_key=product_key,
-            condition_name=condition_name,
+            condition_name=best_condition,
             target_url=target_url,
             target_price=target_price,
             min_price=min_price,
@@ -132,11 +143,15 @@ class LowestPriceChecker:
             status=status,
             note=note,
         )
+        checked_at = datetime.utcnow().isoformat()
+        min_values = {name: float(data["price"]) for name, data in condition_prices.items() if data and data.get("price")}
+        update_watch_result(product_key, target_price, status, min_values, min_url, note, checked_at)
         return {
             "product_key": product_key,
-            "condition": condition_name,
+            "best_condition": best_condition,
             "target_price": target_price,
             "min_price": min_price,
             "min_url": min_url,
             "status": status,
+            "condition_prices": min_values,
         }

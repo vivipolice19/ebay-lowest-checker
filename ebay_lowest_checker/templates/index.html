@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eBay 最安値チェッカー</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; color: #222; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    input, button { padding: 8px; font-size: 14px; }
+    input { width: 100%; margin: 6px 0; box-sizing: border-box; }
+    button { cursor: pointer; margin-right: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #ddd; padding: 6px; font-size: 13px; text-align: left; }
+    th { background: #efefef; }
+    .muted { color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>コンディション別 最安値検索</h2>
+    <input id="keyword" placeholder="商品キーワードを入力（例: Nintendo Switch HAC-001）">
+    <button onclick="searchConditions()">最安値を探す</button>
+    <div id="searchStatus" class="muted"></div>
+    <table id="conditionTable">
+      <thead>
+        <tr><th>Condition</th><th>最安値(USD)</th><th>URL</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>監視URL登録（現在価格はシート管理）</h2>
+    <input id="productKey" placeholder="商品キー（例: SWITCH-001）">
+    <input id="watchKeyword" placeholder="検索キーワード（上と同じでOK）">
+    <input id="targetUrl" placeholder="あなたが監視したい eBay URL">
+    <button onclick="addWatch()">監視に追加</button>
+    <div id="addStatus" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h2>監視制御</h2>
+    <button onclick="runNow()">今すぐ1回チェック</button>
+    <button onclick="startLoop()">定期監視開始</button>
+    <button onclick="stopLoop()">定期監視停止</button>
+    <div id="runStatus" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h2>監視一覧（スプレッドシート）</h2>
+    <button onclick="loadWatchList()">再読込</button>
+    <table id="watchTable">
+      <thead>
+        <tr><th>product_key</th><th>search_keyword</th><th>own_price</th><th>monitor_status</th><th>last_checked</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    async function searchConditions() {
+      const keyword = document.getElementById('keyword').value.trim();
+      if (!keyword) return;
+      document.getElementById('searchStatus').textContent = '検索中...';
+      const res = await fetch('/api/search/conditions?keyword=' + encodeURIComponent(keyword));
+      const data = await res.json();
+      const tbody = document.querySelector('#conditionTable tbody');
+      tbody.innerHTML = '';
+      if (!data.success) {
+        document.getElementById('searchStatus').textContent = data.error || '検索失敗';
+        return;
+      }
+      Object.entries(data.conditions).forEach(([condition, info]) => {
+        const tr = document.createElement('tr');
+        if (info && info.price) {
+          tr.innerHTML = '<td>' + condition + '</td><td>' + Number(info.price).toFixed(2) + '</td><td><a href="' + info.url + '" target="_blank">open</a></td>';
+        } else {
+          tr.innerHTML = '<td>' + condition + '</td><td>-</td><td>-</td>';
+        }
+        tbody.appendChild(tr);
+      });
+      document.getElementById('searchStatus').textContent = '検索完了: ' + keyword;
+      document.getElementById('watchKeyword').value = keyword;
+    }
+
+    async function addWatch() {
+      const product_key = document.getElementById('productKey').value.trim();
+      const search_keyword = document.getElementById('watchKeyword').value.trim();
+      const target_url = document.getElementById('targetUrl').value.trim();
+      const res = await fetch('/api/watch/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_key, search_keyword, target_url })
+      });
+      const data = await res.json();
+      document.getElementById('addStatus').textContent = data.success ? '監視登録しました' : (data.error || '登録失敗');
+      if (data.success) loadWatchList();
+    }
+
+    async function runNow() {
+      document.getElementById('runStatus').textContent = '実行中...';
+      const res = await fetch('/api/check/run', { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('runStatus').textContent = data.success ? ('完了: ' + data.result.checked + '件チェック') : '失敗';
+      loadWatchList();
+    }
+
+    async function startLoop() {
+      await fetch('/api/check/start', { method: 'POST' });
+      document.getElementById('runStatus').textContent = '定期監視を開始しました';
+    }
+
+    async function stopLoop() {
+      await fetch('/api/check/stop', { method: 'POST' });
+      document.getElementById('runStatus').textContent = '定期監視を停止しました';
+    }
+
+    async function loadWatchList() {
+      const res = await fetch('/api/watch/list');
+      const data = await res.json();
+      const tbody = document.querySelector('#watchTable tbody');
+      tbody.innerHTML = '';
+      (data.items || []).forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (row.product_key || '') + '</td><td>' + (row.search_keyword || '') + '</td><td>' + (row.own_price || '') + '</td><td>' + (row.monitor_status || '') + '</td><td>' + (row.last_checked || '') + '</td>';
+        tbody.appendChild(tr);
+      });
+    }
+
+    loadWatchList();
+  </script>
+</body>
+</html>

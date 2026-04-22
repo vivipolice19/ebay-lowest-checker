@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List, Optional
 
 import requests
@@ -18,6 +19,14 @@ CONDITION_MAP = {
     "certified refurbished": "CERTIFIED_REFURBISHED",
     "seller refurbished": "SELLER_REFURBISHED",
 }
+CONDITIONS_FOR_REPORT = [
+    "New",
+    "Open Box",
+    "Used",
+    "Seller Refurbished",
+    "Certified Refurbished",
+    "For Parts",
+]
 
 
 def _headers() -> Dict[str, str]:
@@ -78,6 +87,36 @@ def search_min_price(search_keyword: str, condition_name: str) -> Optional[Dict[
             cheapest = {"price": price, "url": url, "title": item.get("title", "")}
 
     return cheapest
+
+
+def search_min_prices_by_conditions(search_keyword: str) -> Dict[str, Optional[Dict[str, str]]]:
+    report: Dict[str, Optional[Dict[str, str]]] = {}
+    for condition in CONDITIONS_FOR_REPORT:
+        report[condition] = search_min_price(search_keyword, condition)
+    return report
+
+
+def get_item_price_from_url(item_url: str) -> Optional[float]:
+    if not item_url:
+        return None
+    match = re.search(r"/itm/(\d+)", item_url)
+    if not match:
+        return None
+    legacy_item_id = match.group(1)
+    resp = requests.get(
+        "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id",
+        params={"legacy_item_id": legacy_item_id},
+        headers=_headers(),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if resp.status_code >= 400:
+        return None
+    data = resp.json()
+    value = ((data.get("price") or {}).get("value"))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def revise_own_listing_price(target_url: str, new_price: float) -> Dict[str, str]:
