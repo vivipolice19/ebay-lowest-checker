@@ -195,25 +195,6 @@ function saveEbaySettings(e) {
     });
 }
 
-function saveSedoriIntegrationSettings(e) {
-    e.preventDefault();
-    var secretEl = document.getElementById("sedori-webhook-secret");
-    var secret = secretEl ? secretEl.value.trim() : "";
-    if (!secret) {
-        showToast("共有秘密を入力してください（未設定の場合は必須）", "error");
-        return;
-    }
-    apiCall("/api/settings", "POST", { sedori_webhook_secret: secret }).then(function(result) {
-        if (result.success) {
-            showToast("セドリ連携用シークレットを保存しました", "success");
-            if (secretEl) secretEl.value = "";
-            setTimeout(function() { location.reload(); }, 800);
-        } else {
-            showToast(result.error || "保存に失敗しました", "error");
-        }
-    });
-}
-
 function saveSheetsSettings(e) {
     e.preventDefault();
     var data = {

@@ -19,6 +19,9 @@
         "profit_rate": 0,
         "title": "任意"
       }
+
+共有秘密（Bearer の値）: 在庫アプリ起動ログの ``SEDORI_BEARER_TOKEN=`` をコピーする。
+上書きする場合は環境変数 ``SEDORI_WEBHOOK_SECRET`` を設定する。
 """
 import os
 import re
@@ -35,8 +38,8 @@ MAX_URL_LEN = 2048
 
 def get_expected_webhook_secret(get_setting_fn):
     """
-    環境変数 SEDORI_WEBHOOK_SECRET があれば最優先（本番デプロイ向け）。
-    なければ DB 設定 sedori_webhook_secret。
+    環境変数 SEDORI_WEBHOOK_SECRET があれば最優先。
+    なければ DB の sedori_webhook_secret（起動時に未設定なら自動発行済み）。
     """
     env = os.environ.get("SEDORI_WEBHOOK_SECRET", "").strip()
     if env:

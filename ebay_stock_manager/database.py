@@ -1,6 +1,8 @@
 import sqlite3
 import threading
 import time
+import os
+import secrets
 from datetime import datetime
 from config import DATABASE_PATH
 from logger import log_info, log_error
@@ -380,6 +382,38 @@ def get_setting(key, default=None):
     except Exception as e:
         log_error(f"設定取得エラー: {e}")
         return default
+
+
+def bootstrap_sedori_webhook_secret():
+    """
+    環境変数 SEDORI_WEBHOOK_SECRET が無く、DB にも無いときだけ共有秘密を自動発行して保存する。
+    戻り値: 新規発行したトークン文字列（ログ用）。発行しなければ None。
+    """
+    if os.environ.get("SEDORI_WEBHOOK_SECRET", "").strip():
+        return None
+
+    def op(conn):
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT value FROM settings WHERE key = 'sedori_webhook_secret'"
+        ).fetchone()
+        if row and str(row[0]).strip():
+            return None
+        token = secrets.token_urlsafe(48)
+        try:
+            cursor.execute(
+                "INSERT INTO settings (key, value) VALUES ('sedori_webhook_secret', ?)",
+                (token,),
+            )
+            return token
+        except sqlite3.IntegrityError:
+            return None
+
+    try:
+        return _execute_with_retry(op)
+    except Exception as e:
+        log_error(f"セドリ共有秘密の自動発行エラー: {e}")
+        return None
 
 
 def apply_sedori_listing(payload):

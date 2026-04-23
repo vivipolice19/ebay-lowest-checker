@@ -13,7 +13,8 @@ from database import (
     init_database, add_product, delete_product, get_all_products,
     get_product_count, get_active_products, get_alert_products,
     update_ebay_price, update_product_prices, get_products_missing_prices,
-    get_exchange_rate, save_setting, get_setting, apply_sedori_listing
+    get_exchange_rate, save_setting, get_setting, apply_sedori_listing,
+    bootstrap_sedori_webhook_secret,
 )
 from monitor import MonitorManager
 from profit_monitor import ProfitMonitor
@@ -40,6 +41,13 @@ app = Flask(
 app.secret_key = os.urandom(24)
 
 init_database()
+_auto_sedori = bootstrap_sedori_webhook_secret()
+if _auto_sedori:
+    log_info(
+        "セドリ連携: 共有秘密を自動発行しました。"
+        "セドリアプリの HTTP ヘッダ Authorization: Bearer に、次の行と同じ値を設定してください。"
+    )
+    log_info(f"SEDORI_BEARER_TOKEN={_auto_sedori}")
 log_info("=== Webアプリケーション初期化 ===")
 
 monitor = None
@@ -300,6 +308,38 @@ def api_sheets_sync():
     threading.Thread(target=do_sync, daemon=True).start()
     return jsonify({"success": True, "message": "同期を開始しました"})
 
+
+def _trigger_sheet_sync_if_configured():
+    sheet_id = get_setting("sheet_id", "")
+    if not sheet_id:
+        return False
+
+    sync = get_sheets_sync()
+    if not sync._spreadsheet_id:
+        creds_path = get_setting("creds_path", "")
+        interval = int(get_setting("sync_interval", "2") or "2")
+        sync.set_config(sheet_id, creds_path, interval)
+
+    def do_sync():
+        try:
+            sync.sync_once()
+        except Exception as e:
+            log_error(f"Cron同期エラー: {e}")
+
+    threading.Thread(target=do_sync, daemon=True).start()
+    return True
+
+
+@app.route("/api/cron/sync", methods=["GET", "POST"])
+def api_cron_sync():
+    """
+    cron-job.org 用の軽量エンドポイント。
+    本文レスポンスを返さず 204 で終了することで
+    "output too large" を回避する。
+    """
+    _trigger_sheet_sync_if_configured()
+    return ("", 204)
+
 @app.route("/api/sheets/status", methods=["GET"])
 def api_sheets_status():
     sync = get_sheets_sync()
@@ -380,7 +420,7 @@ def api_sedori_listings():
             jsonify(
                 {
                     "success": False,
-                    "error": "サーバに共有秘密が未設定です。環境変数 SEDORI_WEBHOOK_SECRET または設定の sedori_webhook_secret を設定してください。",
+                    "error": "サーバに共有秘密がありません。起動ログの SEDORI_BEARER_TOKEN= を確認するか、環境変数 SEDORI_WEBHOOK_SECRET を設定してください。",
                     "code": "NOT_CONFIGURED",
                 }
             ),

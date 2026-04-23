@@ -71,28 +71,23 @@
         <div class="card">
             <h2 class="card-title">セドリアプリ連携（出品取り込み）</h2>
             <p class="help-text-lg">
-                セドリアプリから出品が完了したタイミングで、在庫DBへ商品を登録・更新するためのAPIです。
-                共有秘密（Bearer トークン）を設定し、セドリ側から <code>POST /api/v1/sedori/listings</code> を呼び出してください。
-                本番では環境変数 <code>SEDORI_WEBHOOK_SECRET</code> を推奨します（未設定時のみ下の設定値が使われます）。
+                出品完了時に在庫DBへ取り込む API です。共有秘密は<strong>この画面では入力しません</strong>。
+                初回起動時に自動で発行され、<strong>サーバのログ</strong>に <code>SEDORI_BEARER_TOKEN=</code> として出ます。
+                その値をセドリアプリ側の <code>Authorization: Bearer …</code> にそのまま設定してください。
             </p>
-            <p class="help-text-lg" style="margin-bottom:12px;">
-                疎通確認: <code>GET /api/v1/sedori/health</code>
+            <p class="help-text-lg">
+                エンドポイント: <code>POST /api/v1/sedori/listings</code>　／　疎通: <code>GET /api/v1/sedori/health</code>
+            </p>
+            <p class="help-text-lg" style="margin-bottom:0;">
                 {% if sedori_webhook_configured %}
-                <span class="status-active" style="margin-left:8px;">共有秘密: 設定済み</span>
+                <span class="status-active">共有秘密: 利用可能（自動発行済みまたは環境変数で設定済み）</span>
                 {% else %}
-                <span class="status-inactive" style="margin-left:8px;">共有秘密: 未設定</span>
+                <span class="status-inactive">共有秘密: 未準備（起動ログを確認）</span>
                 {% endif %}
             </p>
-            <form id="sedori-integration-form" onsubmit="saveSedoriIntegrationSettings(event)">
-                <div class="form-row">
-                    <div class="form-group flex-2">
-                        <label>共有秘密（Bearer トークン）</label>
-                        <input type="password" id="sedori-webhook-secret" value="" placeholder="{% if sedori_webhook_configured %}変更する場合のみ入力{% else %}ランダムな長い文字列を推奨{% endif %}">
-                        <small>セドリアプリの HTTP ヘッダ <code>Authorization: Bearer …</code> と同じ値にしてください</small>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">連携用シークレットを保存</button>
-            </form>
+            <p class="help-text-lg" style="margin-top:12px; color:#aaa;">
+                上書きしたい場合のみ: Render などの環境変数 <code>SEDORI_WEBHOOK_SECRET</code> を設定すると、ログの値よりそちらが優先されます。
+            </p>
         </div>
 
         <div class="card">
