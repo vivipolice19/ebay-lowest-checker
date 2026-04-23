@@ -71,22 +71,13 @@
         <div class="card">
             <h2 class="card-title">セドリアプリ連携（出品取り込み）</h2>
             <p class="help-text-lg">
-                出品完了時に在庫DBへ取り込む API です。共有秘密は<strong>この画面では入力しません</strong>。
-                初回起動時に自動で発行され、<strong>サーバのログ</strong>に <code>SEDORI_BEARER_TOKEN=</code> として出ます。
-                その値をセドリアプリ側の <code>Authorization: Bearer …</code> にそのまま設定してください。
+                出品完了時に在庫DBへ取り込む API です。現在は認証なしで受け付けます。
             </p>
             <p class="help-text-lg">
                 エンドポイント: <code>POST /api/v1/sedori/listings</code>　／　疎通: <code>GET /api/v1/sedori/health</code>
             </p>
-            <p class="help-text-lg" style="margin-bottom:0;">
-                {% if sedori_webhook_configured %}
-                <span class="status-active">共有秘密: 利用可能（自動発行済みまたは環境変数で設定済み）</span>
-                {% else %}
-                <span class="status-inactive">共有秘密: 未準備（起動ログを確認）</span>
-                {% endif %}
-            </p>
             <p class="help-text-lg" style="margin-top:12px; color:#aaa;">
-                上書きしたい場合のみ: Render などの環境変数 <code>SEDORI_WEBHOOK_SECRET</code> を設定すると、ログの値よりそちらが優先されます。
+                セドリ側は <code>Content-Type: application/json</code> でJSONを送るだけで連携できます。
             </p>
         </div>
 
