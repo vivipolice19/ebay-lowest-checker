@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.Python
+*.db
+.env
+.venv/
+venv/
+
+# ログ・ローカルDB（GitHub に上げない）
+ebay_stock_manager/logs/
+ebay_stock_manager/database/
+
+# 認証・秘密（誤コミット防止）
+*credentials*.json
+service_account*.json

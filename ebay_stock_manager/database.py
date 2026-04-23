@@ -100,12 +100,31 @@ def _migrate_database():
                 "last_profit_check": "ALTER TABLE products ADD COLUMN last_profit_check DATETIME DEFAULT NULL",
                 "profit_rate_actual": "ALTER TABLE products ADD COLUMN profit_rate_actual REAL DEFAULT 0",
                 "alert_status": "ALTER TABLE products ADD COLUMN alert_status TEXT DEFAULT 'normal'",
-                "ebay_updated": "ALTER TABLE products ADD COLUMN ebay_updated INTEGER DEFAULT 1"
+                "ebay_updated": "ALTER TABLE products ADD COLUMN ebay_updated INTEGER DEFAULT 1",
+                "external_id": "ALTER TABLE products ADD COLUMN external_id TEXT",
+                "import_title": "ALTER TABLE products ADD COLUMN import_title TEXT",
             }
             for col_name, sql in migrations.items():
                 if col_name not in columns:
                     cursor.execute(sql)
                     log_info(f"カラム追加: {col_name}")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS integration_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
+                    source TEXT NOT NULL DEFAULT 'sedori',
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    product_id INTEGER,
+                    external_id TEXT,
+                    error_message TEXT
+                )
+            """)
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_external_id "
+                "ON products(external_id) WHERE external_id IS NOT NULL AND length(trim(external_id)) > 0"
+            )
             return True
         _execute_with_retry(op)
     except Exception as e:
@@ -361,3 +380,107 @@ def get_setting(key, default=None):
     except Exception as e:
         log_error(f"設定取得エラー: {e}")
         return default
+
+
+def apply_sedori_listing(payload):
+    """
+    セドリアプリからの出品確定を冪等に取り込む。
+    payload は sedori_integration.validate_listing_payload 済みの dict。
+
+    Returns:
+      {"success": True, "result": "created"|"updated"|"duplicate_event", "product_id": int|None}
+      {"success": False, "error": str, "code": "LIMIT"|"INTEGRITY"|"INTERNAL"}
+    """
+    from config import MAX_PRODUCTS
+
+    event_id = payload["event_id"]
+    external_id = payload["external_id"]
+    mercari_url = payload["mercari_url"]
+    ebay_url = payload["ebay_url"]
+    purchase_price = payload["purchase_price"]
+    profit_rate = payload["profit_rate"]
+    title = payload.get("title")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def op(conn):
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT product_id FROM integration_events WHERE event_id = ?",
+            (event_id,),
+        )
+        dup = cursor.fetchone()
+        if dup:
+            return {"success": True, "result": "duplicate_event", "product_id": dup[0]}
+
+        cursor.execute(
+            "SELECT id FROM products WHERE external_id = ?",
+            (external_id,),
+        )
+        prow = cursor.fetchone()
+        if prow:
+            pid = prow[0]
+            if title is not None:
+                cursor.execute(
+                    """UPDATE products SET mercari_url = ?, ebay_url = ?, purchase_price = ?,
+                       profit_rate = ?, import_title = ? WHERE id = ?""",
+                    (mercari_url, ebay_url, purchase_price, profit_rate, title, pid),
+                )
+            else:
+                cursor.execute(
+                    """UPDATE products SET mercari_url = ?, ebay_url = ?, purchase_price = ?,
+                       profit_rate = ? WHERE id = ?""",
+                    (mercari_url, ebay_url, purchase_price, profit_rate, pid),
+                )
+            cursor.execute(
+                """INSERT INTO integration_events
+                   (event_id, source, created_at, status, product_id, external_id, error_message)
+                   VALUES (?, 'sedori', ?, 'applied', ?, ?, NULL)""",
+                (event_id, now, pid, external_id),
+            )
+            log_info(f"セドリ連携: 商品更新 external_id={external_id} product_id={pid}")
+            return {"success": True, "result": "updated", "product_id": pid}
+
+        count = cursor.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        if count >= MAX_PRODUCTS:
+            log_error(f"セドリ連携: 商品数上限のため拒否 external_id={external_id}")
+            return {
+                "success": False,
+                "error": f"商品数上限({MAX_PRODUCTS})に達しています",
+                "code": "LIMIT",
+            }
+
+        cursor.execute(
+            """INSERT INTO products
+               (mercari_url, ebay_url, purchase_price, profit_rate, status, external_id, import_title)
+               VALUES (?, ?, ?, ?, 'active', ?, ?)""",
+            (
+                mercari_url,
+                ebay_url,
+                purchase_price,
+                profit_rate,
+                external_id,
+                title,
+            ),
+        )
+        pid = cursor.lastrowid
+        cursor.execute(
+            """INSERT INTO integration_events
+               (event_id, source, created_at, status, product_id, external_id, error_message)
+               VALUES (?, 'sedori', ?, 'applied', ?, ?, NULL)""",
+            (event_id, now, pid, external_id),
+        )
+        log_info(f"セドリ連携: 商品新規 external_id={external_id} product_id={pid}")
+        return {"success": True, "result": "created", "product_id": pid}
+
+    try:
+        return _execute_with_retry(op)
+    except sqlite3.IntegrityError as e:
+        log_error(f"セドリ連携: 一意制約違反 {e}")
+        return {
+            "success": False,
+            "error": "external_id または event_id が競合しました。同一リクエストの再送か、IDの重複を確認してください。",
+            "code": "INTEGRITY",
+        }
+    except Exception as e:
+        log_error(f"セドリ連携: 内部エラー {e}")
+        return {"success": False, "error": "内部エラーが発生しました", "code": "INTERNAL"}

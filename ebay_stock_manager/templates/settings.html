@@ -69,6 +69,33 @@
         </div>
 
         <div class="card">
+            <h2 class="card-title">セドリアプリ連携（出品取り込み）</h2>
+            <p class="help-text-lg">
+                セドリアプリから出品が完了したタイミングで、在庫DBへ商品を登録・更新するためのAPIです。
+                共有秘密（Bearer トークン）を設定し、セドリ側から <code>POST /api/v1/sedori/listings</code> を呼び出してください。
+                本番では環境変数 <code>SEDORI_WEBHOOK_SECRET</code> を推奨します（未設定時のみ下の設定値が使われます）。
+            </p>
+            <p class="help-text-lg" style="margin-bottom:12px;">
+                疎通確認: <code>GET /api/v1/sedori/health</code>
+                {% if sedori_webhook_configured %}
+                <span class="status-active" style="margin-left:8px;">共有秘密: 設定済み</span>
+                {% else %}
+                <span class="status-inactive" style="margin-left:8px;">共有秘密: 未設定</span>
+                {% endif %}
+            </p>
+            <form id="sedori-integration-form" onsubmit="saveSedoriIntegrationSettings(event)">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>共有秘密（Bearer トークン）</label>
+                        <input type="password" id="sedori-webhook-secret" value="" placeholder="{% if sedori_webhook_configured %}変更する場合のみ入力{% else %}ランダムな長い文字列を推奨{% endif %}">
+                        <small>セドリアプリの HTTP ヘッダ <code>Authorization: Bearer …</code> と同じ値にしてください</small>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">連携用シークレットを保存</button>
+            </form>
+        </div>
+
+        <div class="card">
             <h2 class="card-title">利益管理設定</h2>
             <form id="profit-settings-form" onsubmit="saveSettings(event)">
                 <div class="form-row">

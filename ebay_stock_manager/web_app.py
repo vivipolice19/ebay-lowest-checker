@@ -13,7 +13,7 @@ from database import (
     init_database, add_product, delete_product, get_all_products,
     get_product_count, get_active_products, get_alert_products,
     update_ebay_price, update_product_prices, get_products_missing_prices,
-    get_exchange_rate, save_setting, get_setting
+    get_exchange_rate, save_setting, get_setting, apply_sedori_listing
 )
 from monitor import MonitorManager
 from profit_monitor import ProfitMonitor
@@ -21,6 +21,12 @@ from sheets_sync import SheetsSyncManager
 from notifier import send_profit_alerts
 from logger import log_info, log_error
 from ebay_controller import check_ebay_api_status
+from sedori_integration import (
+    validate_listing_payload,
+    verify_bearer_token,
+    get_expected_webhook_secret,
+    log_validation_failure,
+)
 from config import (
     MAX_PRODUCTS, WEB_HOST, WEB_PORT,
     TEMPLATES_DIR, STATIC_DIR
@@ -156,7 +162,8 @@ def settings_page():
         ebay_runame=EBAY_RUNAME,
         ebay_callback_url=f"{PRODUCTION_URL}/ebay/callback",
         is_replit=is_replit,
-        ebay_token_status=check_ebay_api_status()
+        ebay_token_status=check_ebay_api_status(),
+        sedori_webhook_configured=bool(get_expected_webhook_secret(get_setting)),
     )
 
 @app.route("/api/products", methods=["GET"])
@@ -327,6 +334,99 @@ def api_stop_sheets_sync():
 def api_get_alerts():
     alerts = get_alert_products()
     return jsonify({"alerts": alerts})
+
+
+@app.route("/api/v1/sedori/health", methods=["GET"])
+def api_sedori_health():
+    configured = bool(get_expected_webhook_secret(get_setting))
+    return jsonify(
+        {
+            "ok": True,
+            "service": "ebay_stock_manager",
+            "sedori_webhook_secret_configured": configured,
+        }
+    )
+
+
+def _schedule_sheets_sync_after_sedori_import():
+    sheet_id = get_setting("sheet_id", "")
+    if not sheet_id:
+        return
+    sync = get_sheets_sync()
+    if not sync._spreadsheet_id:
+        creds_path = get_setting("creds_path", "")
+        interval = int(get_setting("sync_interval", "2") or "2")
+        sync.set_config(sheet_id, creds_path, interval)
+
+    def do_sync():
+        try:
+            sync.sync_once()
+        except Exception as e:
+            log_error(f"セドリ連携後のシート同期エラー: {e}")
+
+    threading.Thread(target=do_sync, daemon=True).start()
+
+
+@app.route("/api/v1/sedori/listings", methods=["POST"])
+def api_sedori_listings():
+    """
+    セドリアプリからの出品確定を取り込む本番用API。
+    Authorization: Bearer <SEDORI_WEBHOOK_SECRET または設定の sedori_webhook_secret>
+    Body: { event_id, external_id, mercari_url, ebay_url [, purchase_price, profit_rate, title, listed_at] }
+    """
+    secret = get_expected_webhook_secret(get_setting)
+    if not secret:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "サーバに共有秘密が未設定です。環境変数 SEDORI_WEBHOOK_SECRET または設定の sedori_webhook_secret を設定してください。",
+                    "code": "NOT_CONFIGURED",
+                }
+            ),
+            503,
+        )
+
+    if not verify_bearer_token(request.headers.get("Authorization", ""), secret):
+        return (
+            jsonify({"success": False, "error": "認証に失敗しました", "code": "UNAUTHORIZED"}),
+            401,
+        )
+
+    data = request.get_json(silent=True)
+    cleaned, err = validate_listing_payload(data)
+    if err:
+        log_validation_failure(err)
+        return jsonify({"success": False, "error": err, "code": "VALIDATION"}), 400
+
+    result = apply_sedori_listing(cleaned)
+    if not result.get("success"):
+        code = result.get("code", "ERROR")
+        status = 409 if code == "INTEGRITY" else 500 if code == "INTERNAL" else 400
+        if code == "LIMIT":
+            status = 429
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": result.get("error", "処理に失敗しました"),
+                    "code": code,
+                }
+            ),
+            status,
+        )
+
+    res_type = result.get("result")
+    if res_type in ("created", "updated"):
+        _schedule_sheets_sync_after_sedori_import()
+
+    return jsonify(
+        {
+            "success": True,
+            "result": res_type,
+            "product_id": result.get("product_id"),
+        }
+    )
 
 
 EBAY_RUNAME = "NORIKO_WATANABE-NORIKOWA-Ssyste-ybzhuimzt"

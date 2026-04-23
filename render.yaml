@@ -1,0 +1,19 @@
+# Render Blueprint: https://docs.render.com/blueprint-spec
+# GitHub 連携後「New」→「Blueprint」でこのファイルを指定するか、手動 Web Service でも同じコマンドを設定してください。
+#
+# SQLite を再デプロイ後も残すには: Dashboard → 該当 Web Service → Disks で Persistent Disk を追加し、
+# マウント例: /var/data 。環境変数 DATABASE_PATH=/var/data/products.db を設定する。
+
+services:
+  - type: web
+    name: mercari-ebay-inventory
+    runtime: python
+    buildCommand: pip install --upgrade pip && pip install -r requirements-render.txt
+    startCommand: gunicorn -w 1 --threads 2 --timeout 120 -b 0.0.0.0:$PORT wsgi:app
+    healthCheckPath: /api/v1/sedori/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.10"
+      # 以下は Dashboard → Environment で追加推奨:
+      # SEDORI_WEBHOOK_SECRET（セドリ連携の Bearer と同一）
+      # DATABASE_PATH=/var/data/products.db（Persistent Disk を /var/data に付けた場合）
